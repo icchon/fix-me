@@ -3,19 +3,13 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.github.icchon</groupId>
+        <artifactId>fix-me</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
 
-    <groupId>com.github.icchon</groupId>
-    <artifactId>fix-me</artifactId>
-    <version>1.0-SNAPSHOT</version>
-    <packaging>pom</packaging>
-    <modules>
-        <module>id-issuer</module>
-        <module>market</module>
-        <module>router</module>
-        <module>broker</module>
-        <module>common</module>
-        <module>fix-core</module>
-    </modules>
+    <artifactId>fix-core</artifactId>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>

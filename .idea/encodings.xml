@@ -5,6 +5,8 @@
     <file url="file://$PROJECT_DIR$/broker/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/common/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/common/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/fix-core/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/fix-core/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/id-issuer/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/id-issuer/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/market/src/main/java" charset="UTF-8" />
