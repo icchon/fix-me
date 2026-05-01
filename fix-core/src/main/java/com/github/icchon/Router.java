@@ -17,7 +17,7 @@ import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-public class Router {
+public class Router implements Session.MarketRegistry {
     public final static int BROKER_PORT = 15000;
     public final static int MARKET_A_PORT = 25000;
     public final static int MARKET_B_PORT = 25001;
@@ -103,17 +103,23 @@ public class Router {
     }
 
     private void handleMessage(Session session, FixParser.ParsedData msg) throws Exception {
-        if (session instanceof BrokerSession && "A".equals(msg.header().msgType())) {
-            String targetMarketId = msg.header().targetID();
-            MarketSession marketSession = getAvailableMarketSession(targetMarketId);
-            if (marketSession != null) {
-                ((BrokerSession) session).registerMarket(marketSession.key);
-                marketSession.registerBroker(session.key);
-                System.out.println("Logon: Broker [" + session.ID + "] linked to Market [" + targetMarketId + "]");
-            } else {
-                System.out.println("Logon failed: Market [" + targetMarketId + "] not available for Broker [" + session.ID + "]");
-            }
+        String msgType = msg.header().msgType();
+        System.out.println("Session State: " + session.getState());
+        if ("A".equals(msgType)) {
+            session.processLogon(msg, this);
+            return;
         }
+
+        if ("5".equals(msgType)) {
+            session.processLogout(msg);
+            return;
+        }
+
+        if (session.getState() != Session.SessionState.ESTABLISHED) {
+            System.out.println("Message rejected: Session [" + session.ID + "] not ESTABLISHED. MsgType: " + msgType);
+            return;
+        }
+
         session.handleMsg(msg);
     }
 

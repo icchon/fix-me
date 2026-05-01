@@ -9,8 +9,20 @@ import java.util.Collections;
 import java.util.List;
 
 public abstract class Session{
+    public enum SessionState {
+        CONNECTED,
+        LOGON_RECEIVED,
+        ESTABLISHED,
+        AWAITING_TEST_RESPONSE,
+        LOGOUT_SENT,
+        LOGOUT_RECEIVED,
+        DISCONNECTED, // Abnormal disconnection
+        CLOSED        // Clean logout
+    }
+
     public final SelectionKey key;
     public final String ID;
+    private SessionState state = SessionState.CONNECTED;
     private final StringBuilder _writerBuffer = new StringBuilder();
     protected final FixParser _parser = new FixParser("|");
 
@@ -18,6 +30,19 @@ public abstract class Session{
         this.ID = id;
         this.key = key;
     }
+
+    public SessionState getState() { return state; }
+    public void setState(SessionState newState) {
+        System.out.printf("[SESSION INFO] ID: %s, State Change: %s -> %s\n", ID, this.state, newState);
+        this.state = newState;
+    }
+
+    public interface MarketRegistry {
+        MarketSession getAvailableMarketSession(String marketId);
+    }
+
+    public abstract void processLogon(FixParser.ParsedData data, MarketRegistry registry) throws Exception;
+    public abstract void processLogout(FixParser.ParsedData data) throws Exception;
     public abstract void handleMsg(FixParser.ParsedData data) throws Exception;
 
     public void prepareWrite(String data){
@@ -35,7 +60,7 @@ public abstract class Session{
             _writerBuffer.setLength(0);
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
         } catch (IOException e) {
-            close();
+            handleDisconnection();
         }
     }
 
@@ -45,7 +70,7 @@ public abstract class Session{
         try {
             int bytesRead = clientChannel.read(readBuffer);
             if (bytesRead == -1) {
-                close();
+                handleDisconnection();
                 return Collections.emptyList();
             }
             readBuffer.flip();
@@ -55,15 +80,26 @@ public abstract class Session{
             return _parser.feed(new String(data));
         } catch (Exception e) {
             System.err.println("Read/Parse Error for Session " + ID + ": " + e.getMessage());
+            handleDisconnection();
             return Collections.emptyList();
         }
+    }
+
+    private void handleDisconnection() {
+        if (state == SessionState.CLOSED) {
+            System.out.println("[SESSION INFO] Clean TCP shutdown for session: " + ID);
+        } else {
+            this.setState(SessionState.DISCONNECTED);
+            System.err.println("[SESSION INFO] Abnormal TCP disconnection for session: " + ID);
+        }
+        close();
     }
 
     public void close() {
         try {
             key.cancel();
             key.channel().close();
-            System.out.println("Session closed: " + ID);
+            System.out.println("Physical connection closed: " + ID + " (Final State: " + state + ")");
         } catch (IOException e) { /* ignore */ }
     }
 

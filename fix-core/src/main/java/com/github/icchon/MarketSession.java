@@ -9,6 +9,44 @@ public class MarketSession extends Session {
         super(id, key);
     }
     @Override
+    public void processLogon(FixParser.ParsedData data, MarketRegistry registry) throws Exception {
+        if (_brokerKey != null && _brokerKey.isValid()) {
+            Session brokerSession = (Session) _brokerKey.attachment();
+
+            brokerSession.setState(SessionState.ESTABLISHED);
+            this.setState(SessionState.ESTABLISHED);
+
+            System.out.println("Logon Response from Market [" + ID + "]. Session ESTABLISHED for Broker [" + brokerSession.ID + "]");
+
+            this.handleMsg(data);
+        } else {
+            this.setState(SessionState.ESTABLISHED);
+            System.out.println("Market Session [" + ID + "] established (Standalone).");
+        }
+    }
+
+    @Override
+    public void processLogout(FixParser.ParsedData data) throws Exception {
+        if (this.getState() == SessionState.LOGOUT_SENT) {
+            this.setState(SessionState.CLOSED);
+            if (_brokerKey != null && _brokerKey.isValid()) {
+                Session brokerSession = (Session) _brokerKey.attachment();
+                if (brokerSession.getState() != SessionState.CLOSED) {
+                    brokerSession.setState(SessionState.CLOSED);
+                }
+            }
+            this.handleMsg(data);
+        } else {
+            this.setState(SessionState.LOGOUT_RECEIVED);
+            if (_brokerKey != null && _brokerKey.isValid()) {
+                Session brokerSession = (Session) _brokerKey.attachment();
+                brokerSession.setState(SessionState.LOGOUT_SENT);
+            }
+            this.handleMsg(data);
+        }
+    }
+
+    @Override
     public void handleMsg(FixParser.ParsedData data) throws Exception {
         String marketId = data.header().senderID();
         if (_brokerKey != null && _brokerKey.isValid()) {
@@ -21,4 +59,6 @@ public class MarketSession extends Session {
     public void registerBroker(SelectionKey brokerKey){
         _brokerKey = brokerKey;
     }
+
+    public SelectionKey getBrokerKey() { return _brokerKey; }
 }
