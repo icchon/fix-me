@@ -4,60 +4,27 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public abstract class Session{
-    public enum SessionState {
-        CONNECTED,
-        LOGON_RECEIVED,
-        ESTABLISHED,
-        AWAITING_TEST_RESPONSE,
-        LOGOUT_SENT,
-        LOGOUT_RECEIVED,
-        DISCONNECTED, // Abnormal disconnection
-        CLOSED        // Clean logout
-    }
-
+public abstract class Session {
     public final SelectionKey key;
     public final String ID;
-    private SessionState state = SessionState.CONNECTED;
-    private long lastReadTime = System.currentTimeMillis();
-    private long lastWriteTime = System.currentTimeMillis();
-    private int heartBtInt = 30;
     private final StringBuilder _writerBuffer = new StringBuilder();
     protected final FixParser _parser = new FixParser("|");
 
-    Session(String id, SelectionKey key){
+    Session(String id, SelectionKey key) {
         this.ID = id;
         this.key = key;
     }
 
-    public SessionState getState() { return state; }
-    public void setState(SessionState newState) {
-        System.out.printf("[SESSION INFO] ID: %s, State Change: %s -> %s\n", ID, this.state, newState);
-        this.state = newState;
-    }
-
-    public long getLastReadTime() { return lastReadTime; }
-    public long getLastWriteTime() { return lastWriteTime; }
-    public int getHeartBtInt() { return heartBtInt; }
-    public void setHeartBtInt(int interval) { this.heartBtInt = interval; }
-    public void updateLastWriteTime() { this.lastWriteTime = System.currentTimeMillis(); }
-
-    public interface MarketRegistry {
-        MarketSession getAvailableMarketSession(String marketId);
-    }
-
-    public abstract void processLogon(FixParser.ParsedData data, MarketRegistry registry) throws Exception;
-    public abstract void processLogout(FixParser.ParsedData data) throws Exception;
     public abstract void handleMsg(FixParser.ParsedData data) throws Exception;
 
-    public void prepareWrite(String data){
+    public void prepareWrite(String data) {
         _writerBuffer.append(data);
         this.key.interestOps(this.key.interestOps() | SelectionKey.OP_WRITE);
     }
+
     public void doWrite() {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         try {
@@ -68,9 +35,8 @@ public abstract class Session{
             }
             _writerBuffer.setLength(0);
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
-            this.lastWriteTime = System.currentTimeMillis();
         } catch (IOException e) {
-            handleDisconnection();
+            close();
         }
     }
 
@@ -80,42 +46,31 @@ public abstract class Session{
         try {
             int bytesRead = clientChannel.read(readBuffer);
             if (bytesRead == -1) {
-                handleDisconnection();
+                close();
                 return Collections.emptyList();
             }
-            this.lastReadTime = System.currentTimeMillis();
             readBuffer.flip();
             byte[] data = new byte[readBuffer.remaining()];
             readBuffer.get(data);
+            String raw = new String(data);
+            System.out.println("[RAW RECEIVE] ID: " + ID + " -> " + raw);
 
-            return _parser.feed(new String(data));
+            return _parser.feed(raw);
         } catch (Exception e) {
-            System.err.println("Read/Parse Error for Session " + ID + ": " + e.getMessage());
-            handleDisconnection();
+            close();
             return Collections.emptyList();
         }
-    }
-
-    private void handleDisconnection() {
-        if (state == SessionState.CLOSED) {
-            System.out.println("[SESSION INFO] Clean TCP shutdown for session: " + ID);
-        } else {
-            this.setState(SessionState.DISCONNECTED);
-            System.err.println("[SESSION INFO] Abnormal TCP disconnection for session: " + ID);
-        }
-        close();
     }
 
     public void close() {
         try {
             key.cancel();
             key.channel().close();
-            System.out.println("Physical connection closed: " + ID + " (Final State: " + state + ")");
+            System.out.println("Connection closed: " + ID);
         } catch (IOException e) { /* ignore */ }
     }
 
-    public boolean isConnected(){
-        return (key != null && key.isValid() && ((SocketChannel)key.channel()).isConnected());
+    public boolean isConnected() {
+        return (key != null && key.isValid() && ((SocketChannel) key.channel()).isConnected());
     }
 }
-

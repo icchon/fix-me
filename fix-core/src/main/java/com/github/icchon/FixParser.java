@@ -52,11 +52,12 @@ public class FixParser {
         List<ParsedData> results = new ArrayList<>();
 
         while (true) {
-            System.out.println("STATE: " + state);
+            System.out.println("[PARSER] Current State: " + state + ", Buffer: [" + buffer.toString().replace("\n", "\\n") + "]");
             switch (state) {
                 case WAITING_FOR_8 -> {
                     int idx = buffer.indexOf("8=");
                     if (idx == -1) return results;
+
                     buffer.delete(0, idx); // ゴミを掃除
                     state = ParseState.READING_8_VALUE;
                 }
