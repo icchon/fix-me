@@ -12,6 +12,13 @@ public class BrokerSession extends Session{
     @Override
     public void processLogon(FixParser.ParsedData data, MarketRegistry registry) throws Exception {
         String targetMarketId = data.header().targetID();
+        
+        // HeartBtInt (Tag 108) を取得
+        String hbi = data.body().get(108);
+        if (hbi != null) {
+            this.setHeartBtInt(Integer.parseInt(hbi));
+        }
+
         MarketSession marketSession = registry.getAvailableMarketSession(targetMarketId);
         if (marketSession != null) {
             this.registerMarket(marketSession.key);

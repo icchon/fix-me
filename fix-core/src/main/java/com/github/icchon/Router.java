@@ -75,7 +75,13 @@ public class Router implements Session.MarketRegistry {
             }
 
             while (true) {
-                if (selector.select() == 0) continue;
+                if (selector.select(1000) == 0) {
+                    checkHeartbeats(selector);
+                    continue;
+                }
+                
+                checkHeartbeats(selector); // イベントがあった時もチェック
+
                 Set<SelectionKey> selectedKeys = selector.selectedKeys();
                 Iterator<SelectionKey> iter = selectedKeys.iterator();
                 while (iter.hasNext()) {
@@ -102,9 +108,67 @@ public class Router implements Session.MarketRegistry {
         }
     }
 
+    private void checkHeartbeats(Selector selector) {
+        long now = System.currentTimeMillis();
+        for (SelectionKey key : selector.keys()) {
+            if (key.isValid() && key.attachment() instanceof Session session) {
+                if (session.getState() != Session.SessionState.ESTABLISHED &&
+                    session.getState() != Session.SessionState.AWAITING_TEST_RESPONSE) continue;
+
+                long lastRead = session.getLastReadTime();
+                long lastWrite = session.getLastWriteTime();
+                int hbi = session.getHeartBtInt();
+
+                // 1. Send Heartbeat if quiet for too long
+                if (now - lastWrite > hbi * 1000L) {
+                    sendHeartbeat(session);
+                }
+
+                // 2. Send TestRequest if haven't heard from client
+                if (now - lastRead > (hbi + 2) * 1000L && session.getState() == Session.SessionState.ESTABLISHED) {
+                    sendTestRequest(session);
+                }
+
+                // 3. Timeout disconnection
+                if (now - lastRead > (hbi * 2) * 1000L) {
+                    System.err.println("Session Timeout: No response from " + session.ID);
+                    session.setState(Session.SessionState.DISCONNECTED);
+                    session.close();
+                }
+            }
+        }
+    }
+
+    private void sendHeartbeat(Session session) {
+        String msg = FixMessageBuilder.start("ROUTER", "|")
+                .setMsgType("0")
+                .setField(49, "ROUTER")
+                .setField(56, session.ID)
+                .setField(34, "1") // TODO: Manage sequence numbers
+                .build();
+        session.prepareWrite(msg);
+    }
+
+    private void sendTestRequest(Session session) {
+        String testReqID = "TR-" + System.currentTimeMillis();
+        String msg = FixMessageBuilder.start("ROUTER", "|")
+                .setMsgType("1")
+                .setField(49, "ROUTER")
+                .setField(56, session.ID)
+                .setField(34, "1")
+                .setField(112, testReqID)
+                .build();
+        session.setState(Session.SessionState.AWAITING_TEST_RESPONSE);
+        session.prepareWrite(msg);
+    }
+
     private void handleMessage(Session session, FixParser.ParsedData msg) throws Exception {
         String msgType = msg.header().msgType();
-        System.out.println("Session State: " + session.getState());
+
+        if (session.getState() == Session.SessionState.AWAITING_TEST_RESPONSE) {
+            session.setState(Session.SessionState.ESTABLISHED);
+        }
+
         if ("A".equals(msgType)) {
             session.processLogon(msg, this);
             return;
@@ -112,6 +176,23 @@ public class Router implements Session.MarketRegistry {
 
         if ("5".equals(msgType)) {
             session.processLogout(msg);
+            return;
+        }
+
+        if ("1".equals(msgType)) {
+            String testReqID = msg.body().get(112);
+            String response = FixMessageBuilder.start("ROUTER", "|")
+                    .setMsgType("0")
+                    .setField(49, "ROUTER")
+                    .setField(56, session.ID)
+                    .setField(34, "1")
+                    .setField(112, testReqID)
+                    .build();
+            session.prepareWrite(response);
+            return;
+        }
+
+        if ("0".equals(msgType)) {
             return;
         }
 

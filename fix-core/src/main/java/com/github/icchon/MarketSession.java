@@ -10,6 +10,11 @@ public class MarketSession extends Session {
     }
     @Override
     public void processLogon(FixParser.ParsedData data, MarketRegistry registry) throws Exception {
+        String hbi = data.body().get(108);
+        if (hbi != null) {
+            this.setHeartBtInt(Integer.parseInt(hbi));
+        }
+
         if (_brokerKey != null && _brokerKey.isValid()) {
             Session brokerSession = (Session) _brokerKey.attachment();
 

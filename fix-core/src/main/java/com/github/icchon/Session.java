@@ -23,6 +23,9 @@ public abstract class Session{
     public final SelectionKey key;
     public final String ID;
     private SessionState state = SessionState.CONNECTED;
+    private long lastReadTime = System.currentTimeMillis();
+    private long lastWriteTime = System.currentTimeMillis();
+    private int heartBtInt = 30;
     private final StringBuilder _writerBuffer = new StringBuilder();
     protected final FixParser _parser = new FixParser("|");
 
@@ -36,6 +39,12 @@ public abstract class Session{
         System.out.printf("[SESSION INFO] ID: %s, State Change: %s -> %s\n", ID, this.state, newState);
         this.state = newState;
     }
+
+    public long getLastReadTime() { return lastReadTime; }
+    public long getLastWriteTime() { return lastWriteTime; }
+    public int getHeartBtInt() { return heartBtInt; }
+    public void setHeartBtInt(int interval) { this.heartBtInt = interval; }
+    public void updateLastWriteTime() { this.lastWriteTime = System.currentTimeMillis(); }
 
     public interface MarketRegistry {
         MarketSession getAvailableMarketSession(String marketId);
@@ -59,6 +68,7 @@ public abstract class Session{
             }
             _writerBuffer.setLength(0);
             key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+            this.lastWriteTime = System.currentTimeMillis();
         } catch (IOException e) {
             handleDisconnection();
         }
@@ -73,6 +83,7 @@ public abstract class Session{
                 handleDisconnection();
                 return Collections.emptyList();
             }
+            this.lastReadTime = System.currentTimeMillis();
             readBuffer.flip();
             byte[] data = new byte[readBuffer.remaining()];
             readBuffer.get(data);
