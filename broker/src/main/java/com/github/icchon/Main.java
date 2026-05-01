@@ -1,17 +1,42 @@
 package com.github.icchon;
 
-//TIP コードを<b>実行</b>するには、<shortcut actionId="Run"/> を押すか
-// ガターの <icon src="AllIcons.Actions.Execute"/> アイコンをクリックします。
-public class Main {
-    static void main() {
-        //TIP ハイライトされたテキストにキャレットがある状態で <shortcut actionId="ShowIntentionActions"/> を押すと
-        // IntelliJ IDEA によるその修正案を確認できます。
-        IO.println(String.format("Hello and welcome!"));
+import com.github.icchon.client.BrokerClient;
+import java.io.IOException;
+import java.util.Scanner;
 
-        for (int i = 1; i <= 5; i++) {
-            //TIP <shortcut actionId="Debug"/> を押してコードのデバッグを開始します。<icon src="AllIcons.Debugger.Db_set_breakpoint"/> ブレークポイントを 1 つ設定しましたが、
-            // <shortcut actionId="ToggleLineBreakpoint"/> を押すといつでも他のブレークポイントを追加できます。
-            IO.println("i = " + i);
+public class Main {
+    public static void main(String[] args) {
+        String host = "localhost";
+        int port = 15000;
+
+        try {
+            BrokerClient broker = new BrokerClient(host, port);
+            broker.start();
+
+            Scanner scanner = new Scanner(System.in);
+            System.out.println("Broker started. Commands: 'buy <marketId> <symbol> <qty> <price>', 'exit'");
+
+            while (true) {
+                String line = scanner.nextLine();
+                if ("exit".equalsIgnoreCase(line)) {
+                    broker.stop();
+                    break;
+                }
+
+                String[] parts = line.split(" ");
+                if (parts.length == 5 && "buy".equalsIgnoreCase(parts[0])) {
+                    String marketId = parts[1];
+                    String symbol = parts[2];
+                    int qty = Integer.parseInt(parts[3]);
+                    double price = Double.parseDouble(parts[4]);
+                    
+                    broker.placeOrder(marketId, symbol, qty, price);
+                } else {
+                    System.out.println("Unknown command or invalid format.");
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 }
