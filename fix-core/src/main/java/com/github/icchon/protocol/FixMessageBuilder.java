@@ -39,9 +39,9 @@ public class FixMessageBuilder {
         int bodyLength = _body.length();
         header.append("9=").append(bodyLength).append(_delimiter);
 
-        String preChecksumMsg = _idPrefix + _delimiter + header.toString() + _body.toString();
+        String fixPart = header.toString() + _body.toString();
+        String checksum = Utils.ChecksumUtils.calculate(fixPart);
 
-        String checksum = Utils.ChecksumUtils.calculate(preChecksumMsg);
-        return preChecksumMsg + "10=" + checksum + _delimiter + "\n";
+        return _idPrefix + _delimiter + fixPart + "10=" + checksum + _delimiter + "\n";
     }
 }
