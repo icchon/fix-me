@@ -1,17 +1,24 @@
 package com.github.icchon;
 
-//TIP コードを<b>実行</b>するには、<shortcut actionId="Run"/> を押すか
-// ガターの <icon src="AllIcons.Actions.Execute"/> アイコンをクリックします。
-public class Main {
-    static void main() {
-        //TIP ハイライトされたテキストにキャレットがある状態で <shortcut actionId="ShowIntentionActions"/> を押すと
-        // IntelliJ IDEA によるその修正案を確認できます。
-        IO.println(String.format("Hello and welcome!"));
+import com.github.icchon.client.MarketClient;
+import java.io.IOException;
 
-        for (int i = 1; i <= 5; i++) {
-            //TIP <shortcut actionId="Debug"/> を押してコードのデバッグを開始します。<icon src="AllIcons.Debugger.Db_set_breakpoint"/> ブレークポイントを 1 つ設定しましたが、
-            // <shortcut actionId="ToggleLineBreakpoint"/> を押すといつでも他のブレークポイントを追加できます。
-            IO.println("i = " + i);
+public class Main {
+    public static void main(String[] args) {
+        String host = "localhost";
+        int port = 25000;
+
+        try {
+            MarketClient market = new MarketClient(host, port);
+            market.start();
+            System.out.println("Market is running. Press Ctrl+C to stop.");
+            
+            // Keep the main thread alive
+            while (true) {
+                Thread.sleep(1000);
+            }
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
         }
     }
 }
