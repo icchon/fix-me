@@ -13,7 +13,6 @@
         <module>market</module>
         <module>router</module>
         <module>broker</module>
-        <module>common</module>
         <module>fix-core</module>
     </modules>
 
