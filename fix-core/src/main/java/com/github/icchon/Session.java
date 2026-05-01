@@ -1,16 +1,18 @@
 package com.github.icchon;
-
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public abstract class Session {
     public final SelectionKey key;
     public final String ID;
-    private final StringBuilder _writerBuffer = new StringBuilder();
+    private final Queue<ByteBuffer> _writeQueue = new ConcurrentLinkedQueue<>();
     protected final FixParser _parser = new FixParser("|");
 
     Session(String id, SelectionKey key) {
@@ -21,24 +23,32 @@ public abstract class Session {
     public abstract void handleMsg(FixParser.ParsedData data) throws Exception;
 
     public void prepareWrite(String data) {
-        _writerBuffer.append(data);
-        this.key.interestOps(this.key.interestOps() | SelectionKey.OP_WRITE);
+        _writeQueue.add(ByteBuffer.wrap(data.getBytes()));
+        // Wake up selector to register OP_WRITE if called from another thread
+        key.selector().wakeup();
+        key.interestOps(key.interestOps() | SelectionKey.OP_WRITE);
     }
 
     public void doWrite() {
         SocketChannel clientChannel = (SocketChannel) key.channel();
         try {
-            String dataToSend = _writerBuffer.toString();
-            ByteBuffer writeBuffer = ByteBuffer.wrap(dataToSend.getBytes());
-            while (writeBuffer.hasRemaining()) {
-                clientChannel.write(writeBuffer);
+            while (true) {
+                ByteBuffer buffer = _writeQueue.peek();
+                if (buffer == null) break;
+
+                clientChannel.write(buffer);
+                if (buffer.hasRemaining()) break; // Socket buffer full
+                _writeQueue.poll();
             }
-            _writerBuffer.setLength(0);
-            key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+
+            if (_writeQueue.isEmpty()) {
+                key.interestOps(key.interestOps() & ~SelectionKey.OP_WRITE);
+            }
         } catch (IOException e) {
             close();
         }
     }
+
 
     public List<FixParser.ParsedData> doRead() {
         SocketChannel clientChannel = (SocketChannel) key.channel();

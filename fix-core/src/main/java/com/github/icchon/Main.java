@@ -1,15 +1,13 @@
 package com.github.icchon;
 
-import java.util.Map;
+import java.util.Set;
 
 public class Main {
     public static void main(String[] args) {
         int brokerPort = 15000;
-        Map<Integer, String> marketMappings = Map.of(
-                25000, "MARKET_A",
-                25001, "MARKET_B"
-        );
-        Router server = new Router(brokerPort, marketMappings);
+        Set<Integer> marketPorts = Set.of(25000, 25001);
+        
+        Router server = new Router(brokerPort, marketPorts);
         server.run();
     }
 }

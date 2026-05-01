@@ -11,15 +11,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Router {
-    private final Map<Integer, String> _portToMarketID;
     private final int _brokerPort;
+    private final Set<Integer> _marketPorts;
     private final Map<String, Session> _routingTable = new ConcurrentHashMap<>();
+    private final ExecutorService _executor = Executors.newFixedThreadPool(10);
 
-    Router(int brokerPort, Map<Integer, String> marketMappings) {
-        _brokerPort = brokerPort;
-        _portToMarketID = marketMappings;
+    Router(int brokerPort, Set<Integer> marketPorts) {
+        this._brokerPort = brokerPort;
+        this._marketPorts = marketPorts;
     }
 
     public Session getSessionByID(String id) {
@@ -44,9 +47,9 @@ public class Router {
         try (Selector selector = Selector.open()) {
             setupServerSocket(selector, _brokerPort);
             System.out.println("Broker listening on port: " + _brokerPort);
-            for (int port : _portToMarketID.keySet()) {
+            for (int port : _marketPorts) {
                 setupServerSocket(selector, port);
-                System.out.println("Market [" + _portToMarketID.get(port) + "] listening on port: " + port);
+                System.out.println("Market listening on port: " + port);
             }
 
             while (true) {
@@ -65,7 +68,13 @@ public class Router {
                         if (key.isReadable()) {
                             List<FixParser.ParsedData> messages = session.doRead();
                             for (FixParser.ParsedData msg : messages) {
-                                session.handleMsg(msg);
+                                _executor.submit(() -> {
+                                    try {
+                                        session.handleMsg(msg);
+                                    } catch (Exception e) {
+                                        System.err.println("Handler Error: " + e.getMessage());
+                                    }
+                                });
                             }
                         }
                         if (key.isValid() && key.isWritable()) session.doWrite();
@@ -97,15 +106,8 @@ public class Router {
 
                 clientKey.attach(session);
                 _routingTable.put(id, session);
-
-                if (listenPort != _brokerPort) {
-                    String marketName = _portToMarketID.get(listenPort);
-                    if (marketName != null) {
-                        _routingTable.put(marketName, session);
-                        System.out.println("[ROUTING] Mapped alias '" + marketName + "' to session " + id);
-                    }
-                }
                 
+                // Communicate the ID to the client
                 session.prepareWrite(id + "\n");
                 System.out.println("Accepted on port " + listenPort + ". Assigned ID: " + id);
             }

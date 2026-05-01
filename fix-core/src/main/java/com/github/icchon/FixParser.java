@@ -52,7 +52,6 @@ public class FixParser {
         List<ParsedData> results = new ArrayList<>();
 
         while (true) {
-            System.out.println("[PARSER] Current State: " + state + ", Buffer: [" + buffer.toString().replace("\n", "\\n") + "]");
             switch (state) {
                 case WAITING_FOR_8 -> {
                     int idx = buffer.indexOf("8=");
