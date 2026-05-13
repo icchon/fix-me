@@ -23,6 +23,10 @@ public class FixMessageBuilder {
         return setField(35, type);
     }
 
+    public FixMessageBuilder setSeqNum(int seq) {
+        return setField(34, String.valueOf(seq));
+    }
+
     public FixMessageBuilder setField(int tag, String value) {
         _body.append(tag).append("=").append(value).append(_delimiter);
         return this;

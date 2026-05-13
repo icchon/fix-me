@@ -26,6 +26,7 @@ public abstract class Session {
     public abstract void handleMsg(FixParser.ParsedData data) throws Exception;
 
     public void prepareWrite(String data) {
+        System.out.println("[RAW SEND] ID: " + ID + " -> " + data.trim());
         _writeQueue.add(ByteBuffer.wrap(data.getBytes()));
         // Wake up selector to register OP_WRITE if called from another thread
         key.selector().wakeup();

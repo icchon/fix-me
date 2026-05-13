@@ -7,14 +7,18 @@ import java.util.Scanner;
 public class Main {
     public static void main(String[] args) {
         String host = "localhost";
-        int port = 15000;
+        int port = 5000;
 
         try {
             BrokerClient broker = new BrokerClient(host, port);
             broker.start();
 
             Scanner scanner = new Scanner(System.in);
-            System.out.println("Broker started. Commands: 'buy <marketId> <symbol> <qty> <price>', 'exit'");
+            System.out.println("Broker started.");
+            System.out.println("Commands:");
+            System.out.println("  logon <marketId>");
+            System.out.println("  buy <marketId> <symbol> <qty> <price>");
+            System.out.println("  exit");
 
             while (true) {
                 String line = scanner.nextLine();
@@ -24,7 +28,9 @@ public class Main {
                 }
 
                 String[] parts = line.split(" ");
-                if (parts.length == 5 && "buy".equalsIgnoreCase(parts[0])) {
+                if (parts.length == 2 && "logon".equalsIgnoreCase(parts[0])) {
+                    broker.sendLogon(parts[1]);
+                } else if (parts.length == 5 && "buy".equalsIgnoreCase(parts[0])) {
                     String marketId = parts[1];
                     String symbol = parts[2];
                     int qty = Integer.parseInt(parts[3]);
