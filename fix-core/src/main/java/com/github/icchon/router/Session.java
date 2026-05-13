@@ -17,10 +17,15 @@ public abstract class Session {
     public final String ID;
     private final Queue<ByteBuffer> _writeQueue = new ConcurrentLinkedQueue<>();
     protected final FixParser _parser = new FixParser("|");
+    private Runnable _onClose;
 
     Session(String id, SelectionKey key) {
         this.ID = id;
         this.key = key;
+    }
+
+    public void setOnClose(Runnable onClose) {
+        this._onClose = onClose;
     }
 
     public abstract void handleMsg(FixParser.ParsedData data) throws Exception;
@@ -78,6 +83,7 @@ public abstract class Session {
 
     public void close() {
         try {
+            if (_onClose != null) _onClose.run();
             key.cancel();
             key.channel().close();
             System.out.println("Connection closed: " + ID);

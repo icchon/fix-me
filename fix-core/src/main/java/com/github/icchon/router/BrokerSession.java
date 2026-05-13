@@ -18,7 +18,7 @@ public class BrokerSession extends Session {
         _router.registerAlias(senderID, this);
 
         String targetID = data.targetSessionID();
-        Session targetSession = _router.getSessionByID(targetID);
+        Session targetSession = _router.findSession(targetID);
         
         if (targetSession != null) {
             System.out.println("[ROUTING] Broker " + ID + " (" + senderID + ") -> Target " + targetID);

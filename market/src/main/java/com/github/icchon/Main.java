@@ -13,7 +13,18 @@ public class Main {
             market.start();
             System.out.println("Market is running. Press Ctrl+C to stop.");
             
-            // Keep the main thread alive
+            // Wait a bit for ID assignment and then send logon
+            Thread.sleep(2000);
+            String myId = market.getId();
+            if (myId != null) {
+                com.github.icchon.protocol.FixMessageBuilder logon = com.github.icchon.protocol.FixMessageBuilder.start(myId, "|")
+                        .setMsgType("A")
+                        .setField(98, "0")
+                        .setField(108, "30")
+                        .setField(49, "market-C"); // Identity as market-C
+                market.sendFix(logon);
+            }
+            
             while (true) {
                 Thread.sleep(1000);
             }

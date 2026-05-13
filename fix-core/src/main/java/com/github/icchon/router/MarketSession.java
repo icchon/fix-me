@@ -18,7 +18,7 @@ public class MarketSession extends Session {
         _router.registerAlias(senderID, this);
 
         String targetID = data.targetSessionID();
-        Session targetSession = _router.getSessionByID(targetID);
+        Session targetSession = _router.findSession(targetID);
 
         if (targetSession != null) {
             System.out.println("[ROUTING] Market " + ID + " (" + senderID + ") -> Target " + targetID);
