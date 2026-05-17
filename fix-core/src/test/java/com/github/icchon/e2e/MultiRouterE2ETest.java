@@ -107,6 +107,36 @@ public class MultiRouterE2ETest {
             }
         });
 
+        mockIdIssuer.createContext("/routing/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            if (path.endsWith("/endpoints")) {
+                String alias = path.substring(9, path.length() - 10);
+                List<String> eps = marketEndpoints.getOrDefault(alias, List.of());
+                
+                // Broker の解決（簡易的にIDが alias と同じとする）
+                if (eps.isEmpty()) {
+                    if ("BROKER-2".equals(alias)) {
+                        eps = List.of("router-b:BROKER-2");
+                    }
+                }
+
+                String response = "[\"" + String.join("\",\"", eps) + "\"]";
+                if (eps.isEmpty()) response = "[]";
+                exchange.sendResponseHeaders(200, response.length());
+                try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
+            } else {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.close();
+            }
+        });
+
+        mockIdIssuer.createContext("/routers", exchange -> {
+            String response = "[{\"id\":\"router-a\",\"host\":\"localhost\",\"broker_port\":" + brokerPortA + ",\"market_port\":" + marketPortA + "}," +
+                              "{\"id\":\"router-b\",\"host\":\"localhost\",\"broker_port\":" + brokerPortB + ",\"market_port\":" + marketPortB + "}]";
+            exchange.sendResponseHeaders(200, response.length());
+            try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
+        });
+
         mockIdIssuer.start();
     }
 

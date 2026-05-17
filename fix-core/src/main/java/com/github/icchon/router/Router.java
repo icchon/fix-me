@@ -33,8 +33,8 @@ import redis.clients.jedis.JedisPubSub;
 
 public class Router {
     private final String _routerId;
-    private final int _brokerPort;
-    private final Set<Integer> _marketPorts;
+    private int _brokerPort;
+    private Set<Integer> _marketPorts;
     private final Map<String, Session> _localSessions = new ConcurrentHashMap<>();
     private final ExecutorService _executor = Executors.newFixedThreadPool(10);
     private final String _idIssuerUrl;
@@ -90,6 +90,10 @@ public class Router {
         _sessionToAliases.computeIfAbsent(session.ID, k -> ConcurrentHashMap.newKeySet()).add(alias);
         _localSessions.put(alias, session);
         registerRoutingWithIssuer(alias);
+
+        // フェイルオーバー対策: このエイリアスが関与する古いスティッキーパスをクリアする
+        // (自分が新しく現れたので、他人から自分への古い道筋は無効)
+        _stickyRouting.entrySet().removeIf(entry -> entry.getKey().endsWith("->" + alias));
     }
 
     private void registerRoutingWithIssuer(String alias) {
@@ -137,8 +141,21 @@ public class Router {
         if (aliases != null) {
             for (String alias : aliases) {
                 System.out.println("[ROUTING] Cleaning up alias '" + alias + "' for session " + sessionId);
-                _localSessions.remove(alias);
-                unregisterRoutingWithIssuer(alias);
+                
+                // 他のセッションが同じエイリアスを持っていないか確認
+                boolean stillInUse = false;
+                for (Set<String> sessionAliases : _sessionToAliases.values()) {
+                    if (sessionAliases.contains(alias)) {
+                        stillInUse = true;
+                        break;
+                    }
+                }
+                
+                if (!stillInUse) {
+                    _localSessions.remove(alias);
+                    unregisterRoutingWithIssuer(alias);
+                }
+                
                 unregisterMarketFromIssuer(alias, sessionId);
             }
         }
@@ -152,7 +169,7 @@ public class Router {
         _httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenAccept(res -> {
                     if (res.statusCode() == 200) {
-                        System.out.println("[ID-ISSUER] Unregistered endpoint for market '" + marketName + "'");
+                        System.out.println("[ID-ISSUER] Unregistered endpoint for market '" + marketName + "' (" + _routerId + ":" + sessionId + ")");
                     }
                 });
     }
@@ -238,17 +255,24 @@ public class Router {
 
     private List<String> resolveEndpointsFromIssuer(String alias) {
         try {
+            // alias が Market名か BrokerID かを問わず解決できるエンドポイントへ問い合わせ
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(_idIssuerUrl + "/markets/" + alias + "/endpoints"))
+                    .uri(URI.create(_idIssuerUrl + "/routing/" + alias + "/endpoints"))
                     .GET()
                     .build();
 
             HttpResponse<String> response = _httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                return _objectMapper.readValue(response.body(), new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+                String body = response.body();
+                if (body == null || body.isEmpty() || body.equals("[]")) {
+                    return List.of();
+                }
+                return _objectMapper.readValue(body, new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {});
+            } else if (response.statusCode() != 404) {
+                System.err.println("[ROUTING ERROR] id-issuer returned " + response.statusCode() + " for '" + alias + "'");
             }
         } catch (Exception e) {
-            System.err.println("[ROUTING ERROR] Failed to resolve endpoints: " + e.getMessage());
+            System.err.println("[ROUTING ERROR] Failed to resolve endpoints for '" + alias + "': " + e.getMessage());
         }
         return List.of();
     }
@@ -342,10 +366,10 @@ public class Router {
             
             ServerSocketChannel bch = setupServerSocket(_selector, _brokerPort);
             _serverChannels.add(bch);
-            int actualBrokerPort = bch.socket().getLocalPort();
-            System.out.println("Router Broker listening on " + actualBrokerPort);
+            this._brokerPort = bch.socket().getLocalPort(); // 実ポートで更新
+            System.out.println("Router Broker listening on " + _brokerPort);
 
-            List<Integer> actualMarketPorts = new ArrayList<>();
+            Set<Integer> actualMarketPorts = new java.util.HashSet<>();
             for (int port : _marketPorts) {
                 ServerSocketChannel mch = setupServerSocket(_selector, port);
                 _serverChannels.add(mch);
@@ -353,14 +377,15 @@ public class Router {
                 actualMarketPorts.add(actualMPort);
                 System.out.println("Router Market listening on " + actualMPort);
             }
+            this._marketPorts = actualMarketPorts; // 実ポートセットで更新
 
             // id-issuerに自身を登録
-            registerRouterWithIssuer(actualBrokerPort, actualMarketPorts.isEmpty() ? 0 : actualMarketPorts.get(0));
+            registerRouterWithIssuer(_brokerPort, _marketPorts.isEmpty() ? 0 : _marketPorts.iterator().next());
             // 定期的なハートビート
             _discoveryTimer.scheduleAtFixedRate(new java.util.TimerTask() {
                 @Override
                 public void run() {
-                    registerRouterWithIssuer(actualBrokerPort, actualMarketPorts.isEmpty() ? 0 : actualMarketPorts.get(0));
+                    registerRouterWithIssuer(_brokerPort, _marketPorts.isEmpty() ? 0 : _marketPorts.iterator().next());
                 }
             }, 30000, 30000);
 
@@ -389,16 +414,7 @@ public class Router {
                         if (session == null) continue;
                         
                         if (key.isReadable()) {
-                            List<FixParser.ParsedData> messages = session.doRead();
-                            for (FixParser.ParsedData msg : messages) {
-                                _executor.submit(() -> {
-                                    try {
-                                        session.handleMsg(msg);
-                                    } catch (Exception e) {
-                                        System.err.println("Handler Error: " + e.getMessage());
-                                    }
-                                });
-                            }
+                            session.doRead();
                         } else if (key.isValid() && key.isWritable()) {
                             session.doWrite();
                         }

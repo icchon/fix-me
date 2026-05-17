@@ -1,8 +1,5 @@
 package com.github.icchon.router;
 
-import com.github.icchon.protocol.FixMessageBuilder;
-import com.github.icchon.protocol.FixParser;
-
 import java.nio.channels.SelectionKey;
 
 public class MarketSession extends Session {
@@ -13,32 +10,16 @@ public class MarketSession extends Session {
     }
 
     @Override
-    public void handleMsg(FixParser.ParsedData data) throws Exception {
-        String senderID = data.header().senderID();
-        String msgType = data.header().msgType();
-        String targetID = data.targetSessionID();
-
-        System.out.println("[MARKET-SESSION] Received message type " + msgType + " from " + senderID);
-        _router.registerAlias(senderID, this);
-
-        // ROUTER 宛てのメッセージをハンドル (Logon 応答など)
-        if ("ROUTER".equals(targetID)) {
-            if ("A".equals(msgType)) {
-                System.out.println("[ROUTING] Responding to Logon from Market: " + senderID);
-                FixMessageBuilder response = FixMessageBuilder.start(senderID, "|")
-                        .setMsgType("A")
-                        .setField(49, "ROUTER")
-                        .setField(56, senderID);
-                prepareWrite(response.build());
-            }
-            return;
-        }
+    public void handleMsg(String targetID, String senderID, String payload) throws Exception {
+        System.out.println("[MARKET-SESSION] Routing message from " + senderID + " to " + targetID);
 
         // ルーティング先のセッションを探す
-        Session targetSession = _router.findSession(targetID, senderID, data.fixPayload());
-        if (targetSession != null) {
+        Router.RoutingResult result = _router.findSessionV2(targetID, senderID, payload);
+        if (result.localSession != null) {
             System.out.println("[ROUTING] Market " + ID + " (" + senderID + ") -> Target " + targetID);
-            targetSession.prepareWrite(senderID + "|" + data.fixPayload());
+            result.localSession.prepareWrite(payload);
+        } else if (!result.forwarded) {
+            System.err.println("[ROUTING ERROR] Target '" + targetID + "' Not Found. Dropping message from " + senderID);
         }
     }
 }

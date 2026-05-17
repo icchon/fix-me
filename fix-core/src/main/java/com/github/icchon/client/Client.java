@@ -34,6 +34,7 @@ public abstract class Client implements Runnable {
     private Selector _selector;
     private SocketChannel _channel;
     private final Queue<ByteBuffer> _writeQueue = new ConcurrentLinkedQueue<>();
+    private final Queue<FixMessageBuilder> _pendingFixMessages = new ConcurrentLinkedQueue<>();
     private final FixParser _parser = new FixParser("|");
     private volatile boolean _isRunning = false;
     private Thread _networkThread;
@@ -50,7 +51,7 @@ public abstract class Client implements Runnable {
     protected final com.fasterxml.jackson.databind.ObjectMapper _objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
 
     private volatile boolean _isWaitingToReconnect = false;
-    private long _reconnectDelayMs = 5000; 
+    private long _reconnectDelayMs = 100; // 0.1s に短縮 (No time recovery)
 
     public Client(String host, int port) {
         this(host, port, null);
@@ -80,8 +81,21 @@ public abstract class Client implements Runnable {
     }
 
     private String getSeqKey(String sender, String target, boolean isSend) {
+        // Routerの内部ID(000001等)が混入しないよう、論理IDのみを抽出してキーにする
+        String cleanSender = normalizeId(sender);
+        String cleanTarget = normalizeId(target);
+        
         String type = isSend ? "send" : "recv";
-        return "fix:seq:" + type + ":" + sender + ":" + target;
+        return "fix:seq:" + type + ":" + cleanSender + ":" + cleanTarget;
+    }
+
+    private String normalizeId(String id) {
+        if (id == null) return "unknown";
+        // もし ID:000001:routerId| のような形式なら分解するが、
+        // 基本的にここは 49= や 56= の値（論理ID）が来るはず。
+        // 数字6桁のみの場合は内部IDの可能性が高いが、
+        // ここでは純粋に文字列として扱う。
+        return id;
     }
 
     protected int getNextSendSeq(String sender, String target) {
@@ -143,8 +157,9 @@ public abstract class Client implements Runnable {
                             System.out.println("Attempting to connect to " + _host + ":" + _port + "...");
                             connect();
                         } else {
-                            System.err.println("[CLIENT] No routers available. Retrying in 5s...");
+                            System.err.println("[CLIENT] No routers available. Retrying...");
                             _isWaitingToReconnect = true;
+                            _reconnectDelayMs = 1000; 
                             continue;
                         }
                     }
@@ -182,9 +197,10 @@ public abstract class Client implements Runnable {
                     }
                 } catch (Exception e) {
                     if (_isRunning) {
-                        System.err.println("Client Error: " + e.getMessage());
+                        System.err.println("Connection Error: " + e.getMessage());
                         _isWaitingToReconnect = true;
-                        _port = 0; // 接続に失敗したら常に再発見を試みる
+                        _reconnectDelayMs = 100; // 接続断は即座にリトライ (0.1s)
+                        _port = 0; 
                     }
                     cleanupConnection();
                     if (!_isRunning) break;
@@ -250,7 +266,8 @@ public abstract class Client implements Runnable {
     protected void cleanupConnection() {
         _isLoggedOn = false;
         _routerInternalId = null; 
-        _writeQueue.clear(); // 切断中に溜まった古いパケットを破棄
+        _writeQueue.clear(); 
+        _pendingFixMessages.clear(); 
         try {
             if (_channel != null) {
                 _channel.close();
@@ -293,14 +310,19 @@ public abstract class Client implements Runnable {
     }
 
     public void forceDisconnect() {
-        System.out.println("[DEBUG] Forcing abrupt disconnection...");
-        _isWaitingToReconnect = true;
-        cleanupConnection();
-        if (_selector != null) _selector.wakeup();
+        System.out.println("[DEBUG] Forcing abrupt disconnection and stopping client...");
+        stop(); 
     }
 
     public void resetSession() {
         _isLoggedOn = false;
+    }
+
+    protected void setLoggedOn(boolean loggedOn) {
+        this._isLoggedOn = loggedOn;
+        if (_onLogonStatusChanged != null) {
+            _onLogonStatusChanged.run();
+        }
     }
 
     public boolean isLoggedOn() {
@@ -345,7 +367,14 @@ public abstract class Client implements Runnable {
 
     protected abstract void onConnected();
     protected abstract void handleMessage(FixParser.ParsedData message);
-    protected void onRouterIdUpdated() {}
+    
+    protected void onRouterIdUpdated() {
+        System.out.println("[CLIENT] Router ID updated to " + _routerInternalId + ". Flushing pending messages...");
+        FixMessageBuilder pending;
+        while ((pending = _pendingFixMessages.poll()) != null) {
+            sendFix(pending);
+        }
+    }
 
     public synchronized void send(String message) {
         if (_rawMessageListener != null) {
@@ -358,19 +387,21 @@ public abstract class Client implements Runnable {
     }
 
     public synchronized void sendFix(FixMessageBuilder builder) {
+        if (_routerInternalId == null) {
+            System.out.println("[CLIENT] Router ID not yet assigned. Queuing message...");
+            _pendingFixMessages.add(builder);
+            return;
+        }
+        
         String sender = builder.getSenderId();
         String target = builder.getTargetId();
         
         int nextSeq = getNextSendSeq(sender, target);
         builder.setSeqNum(nextSeq);
-        String msg = builder.build();
+        String fixMsg = builder.build();
         
-        if (_routerInternalId != null) {
-            int firstPipe = msg.indexOf("|");
-            if (firstPipe != -1) {
-                msg = _routerInternalId + msg.substring(firstPipe);
-            }
-        }
+        // Router用のルーティングラッパー: [AssignedID]|[TargetID]|[SenderID]|[FIX Message]
+        String msg = _routerInternalId + "|" + target + "|" + sender + "|" + fixMsg;
         send(msg);
     }
 
@@ -429,10 +460,10 @@ public abstract class Client implements Runnable {
             }
         }
 
-        if (fixPart.contains("|8=FIX")) {
-            int firstPipe = fixPart.indexOf("|");
-            if (firstPipe != -1) {
-                fixPart = fixPart.substring(firstPipe + 1);
+        if (fixPart.contains("8=FIX")) {
+            int fixIndex = fixPart.indexOf("8=FIX");
+            if (fixIndex != -1) {
+                fixPart = fixPart.substring(fixIndex);
             }
         }
 
@@ -462,19 +493,31 @@ public abstract class Client implements Runnable {
                 System.out.println("[LOGON] Learning Session ID from response: " + target);
                 _id = target;
             }
-            System.out.println("[LOGON] Session Established. Synchronizing sequence to " + seq);
-            setExpectedRecvSeq(target, sender, seq);
+            // Logon メッセージの番号で強制同期（再接続時の救済措置）
+            if (seq != -1) {
+                System.out.println("[LOGON] Synchronizing sequence to " + seq);
+                setExpectedRecvSeq(target, sender, seq + 1);
+            }
+            
             _isLoggedOn = true;
             if (_onLogonStatusChanged != null) {
                 _onLogonStatusChanged.run();
             }
+
+            // ROUTER からの承認応答なら、ここで処理を止める（ループ防止）
+            if ("ROUTER".equals(sender)) {
+                System.out.println("[LOGON] Logon accepted by Router.");
+                return; 
+            }
         }
 
-        if (seq != -1) {
+        if (seq != -1 && !"A".equals(msgType)) {
             int expected = getExpectedRecvSeq(target, sender);
             if (seq != expected) {
-                System.err.println("[SEQ ERROR] Expected: " + expected + ", Got: " + seq);
+                System.err.println("[SEQ ERROR] Expected: " + expected + ", Got: " + seq + ". Message rejected.");
+                return; // 番号が合わない通常のメッセージは処理しない
             }
+            // 正常な場合のみインクリメント
             setExpectedRecvSeq(target, sender, seq + 1);
         }
 

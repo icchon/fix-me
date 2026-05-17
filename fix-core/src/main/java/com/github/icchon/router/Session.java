@@ -1,15 +1,11 @@
 package com.github.icchon.router;
 
-import com.github.icchon.protocol.FixMessageBuilder;
-import com.github.icchon.protocol.FixParser;
+import com.github.icchon.protocol.Utils;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -18,7 +14,6 @@ public abstract class Session {
     public final String ID;
     protected final Router _router;
     private final Queue<ByteBuffer> _writeQueue = new ConcurrentLinkedQueue<>();
-    protected final FixParser _parser = new FixParser("|");
     private Runnable _onClose;
     private boolean _authenticated = false;
 
@@ -44,13 +39,12 @@ public abstract class Session {
         this._onClose = onClose;
     }
 
-    public abstract void handleMsg(FixParser.ParsedData data) throws Exception;
+    public abstract void handleMsg(String targetId, String senderId, String payload) throws Exception;
 
     public void prepareWrite(String data) {
         System.out.println("[RAW SEND] ID: " + ID + " -> " + data.trim());
         _writeQueue.add(ByteBuffer.wrap(data.getBytes()));
         
-        // SelectorスレッドでinterestOpsを変更させる
         _router.submitTask(() -> {
             SelectionKey k = this.key;
             if (k != null && k.isValid()) {
@@ -72,7 +66,7 @@ public abstract class Session {
                 if (buffer == null) break;
 
                 clientChannel.write(buffer);
-                if (buffer.hasRemaining()) break; // Socket buffer full
+                if (buffer.hasRemaining()) break; 
                 _writeQueue.poll();
             }
 
@@ -84,17 +78,16 @@ public abstract class Session {
         }
     }
 
-
-    public List<FixParser.ParsedData> doRead() {
-        if (!isOpen()) return Collections.emptyList();
+    public void doRead() {
+        if (!isOpen()) return;
         SocketChannel clientChannel = (SocketChannel) key.channel();
-        ByteBuffer readBuffer = ByteBuffer.allocate(4096);
+        ByteBuffer readBuffer = ByteBuffer.allocate(8192);
         try {
             int bytesRead = clientChannel.read(readBuffer);
             if (bytesRead == -1) {
                 System.out.println("[SESSION] Connection closed by client: " + ID);
                 close();
-                return Collections.emptyList();
+                return;
             }
             readBuffer.flip();
             byte[] data = new byte[readBuffer.remaining()];
@@ -102,52 +95,63 @@ public abstract class Session {
             String raw = new String(data);
             System.out.println("[RAW RECEIVE] ID: " + ID + " -> " + raw.trim());
 
-            // Requirement: All messages will start with the ID assigned by the router
-            // ID|8=FIX.4.2|...|10=...|
-            // またはハンドシェイク用
-            // ID|HELLO:market-A|
-            String payload = raw;
-            if (raw.contains("|")) {
-                int firstPipe = raw.indexOf("|");
-                payload = raw.substring(firstPipe + 1);
+            String[] messages = raw.split("(?<=\\|10=\\d{3}\\|)");
+            for (String msg : messages) {
+                if (msg.trim().isEmpty()) continue;
+                processSingleMessage(msg);
             }
-
-            if (payload.startsWith("HELLO:")) {
-                int nextPipe = payload.indexOf('|');
-                String helloMsg = (nextPipe != -1) ? payload.substring(0, nextPipe) : payload;
-                String marketName = helloMsg.substring(6);
-                System.out.println("[HANDSHAKE] Received HELLO from Market: " + marketName);
-                _router.registerAlias(marketName, this);
-                _router.registerMarketWithIssuer(marketName, ID);
-                return Collections.emptyList();
-            }
-
-            return _parser.feed(payload);
-        } catch (FixParser.FixException e) {
-            System.err.println("FIX Protocol Error: " + e.getMessage());
-            sendReject(e);
-            close();
-            return Collections.emptyList();
+            
         } catch (Exception e) {
             System.err.println("[SESSION ERROR] ID: " + ID + " -> " + e.getMessage());
             e.printStackTrace();
             close();
-            return Collections.emptyList();
         }
     }
 
-    private void sendReject(FixParser.FixException e) {
-        String reason = "99"; // Other
-        if (e.type == FixParser.ParseState.INVALID_CHECKSUM) reason = "9"; // Invalid Checksum
-        if (e.type == FixParser.ParseState.INVALID_FORMAT) reason = "11"; // Invalid Tag Number (or format)
+    private void processSingleMessage(String raw) throws Exception {
+        if (raw.contains("HELLO:")) {
+            int firstPipe = raw.indexOf("|");
+            String payload = raw.substring(firstPipe + 1);
+            int nextPipe = payload.indexOf('|');
+            String helloMsg = (nextPipe != -1) ? payload.substring(0, nextPipe) : payload;
+            String marketName = helloMsg.substring(6);
+            System.out.println("[HANDSHAKE] Received HELLO from Market: " + marketName);
+            _router.registerAlias(marketName, this);
+            _router.registerMarketWithIssuer(marketName, ID);
+            return;
+        }
 
-        FixMessageBuilder reject = FixMessageBuilder.start(ID, "|")
-                .setField(49, "ROUTER")
-                .setMsgType("3") // Reject
-                .setField(373, reason)
-                .setField(58, e.getMessage());
+        // Expected format: AssignedID|TargetID|SenderID|8=FIX...
+        String[] parts = raw.split("\\|", 4);
+        if (parts.length < 4) {
+            System.err.println("[ROUTING ERROR] Malformed message wrapper: " + raw);
+            return;
+        }
 
-        prepareWrite(reject.build());
+        String targetId = parts[1];
+        String senderId = parts[2];
+        String fixPayload = parts[3];
+
+        if (!validateChecksum(fixPayload)) {
+            System.err.println("[FIX ERROR] Invalid checksum for message from " + senderId);
+            return;
+        }
+
+        handleMsg(targetId, senderId, fixPayload);
+    }
+
+    private boolean validateChecksum(String payload) {
+        int checksumTagPos = payload.lastIndexOf("10=");
+        if (checksumTagPos == -1) return false;
+        
+        String dataToCalc = payload.substring(0, checksumTagPos);
+        String expected = Utils.ChecksumUtils.calculate(dataToCalc);
+        
+        int endPos = payload.indexOf('|', checksumTagPos);
+        if (endPos == -1) return false;
+        
+        String actual = payload.substring(checksumTagPos + 3, endPos);
+        return expected.equals(actual);
     }
 
     public void close() {
@@ -169,3 +173,4 @@ public abstract class Session {
         return (key != null && key.isValid() && ((SocketChannel) key.channel()).isConnected());
     }
 }
+

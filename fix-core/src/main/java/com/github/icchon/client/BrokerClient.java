@@ -138,8 +138,25 @@ public class BrokerClient extends Client {
         if ("8".equals(msgType)) {
             String status = message.body().get(39);
             String clOrdId = message.body().get(11);
-            String displayStatus = "2".equals(status) ? "FILLED" : "REJECTED";
-            System.out.println("[REPORT] Order " + clOrdId + " is " + displayStatus);
+            String text = message.body().get(58);
+            
+            if ("8".equals(status)) { // Rejected
+                System.out.println("[REPORT] Order " + clOrdId + " is REJECTED: " + text);
+                
+                // 自動復旧中のログオン失敗（マーケット不在など）の場合、リトライを試みる
+                if (!isLoggedOn() && _wasLoggedOn && text != null && text.contains("Not Found")) {
+                    System.out.println("[RECONNECT] Target not ready. Retrying logon in 3s...");
+                    new Thread(() -> {
+                        try { Thread.sleep(3000); } catch (InterruptedException e) {}
+                        if (!isLoggedOn() && isConnected()) {
+                            sendLogon(_lastTargetMarket);
+                        }
+                    }).start();
+                }
+            } else {
+                String displayStatus = "2".equals(status) ? "FILLED" : "PARTIAL";
+                System.out.println("[REPORT] Order " + clOrdId + " is " + displayStatus);
+            }
         } else if ("5".equals(msgType)) {
             if ("ROUTER".equals(senderId)) {
                 System.out.println("[LOGOUT] Logout confirmed by ROUTER. Stopping client.");

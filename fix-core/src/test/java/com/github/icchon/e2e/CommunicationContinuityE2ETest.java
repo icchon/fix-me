@@ -80,8 +80,24 @@ public class CommunicationContinuityE2ETest {
             try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
         });
         mockIdIssuer.createContext("/routing/", exchange -> {
-            exchange.sendResponseHeaders(200, 0);
-            exchange.close();
+            String path = exchange.getRequestURI().getPath();
+            if (path.endsWith("/endpoints")) {
+                String alias = path.substring(9, path.length() - 10);
+                Set<String> eps = marketEndpoints.getOrDefault(alias, Set.of());
+                
+                // Broker の解決（簡易的にIDが alias と同じとする）
+                if (eps.isEmpty()) {
+                    if ("PERSIST-BROKER".equals(alias)) {
+                        returnEndpoints(exchange, Set.of("router-b:PERSIST-BROKER"));
+                        return;
+                    }
+                }
+
+                returnEndpoints(exchange, eps);
+            } else {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.close();
+            }
         });
 
         // 削除 (DELETE /markets/name/{name}?router_id=...&session_id=...)
@@ -110,6 +126,19 @@ public class CommunicationContinuityE2ETest {
             if (pair.length == 2 && pair[0].equals(key)) return pair[1];
         }
         return null;
+    }
+
+    private void returnEndpoints(com.sun.net.httpserver.HttpExchange exchange, Set<String> eps) throws IOException {
+        StringBuilder sb = new StringBuilder("[");
+        Iterator<String> it = eps.iterator();
+        while (it.hasNext()) {
+            sb.append("\"").append(it.next()).append("\"");
+            if (it.hasNext()) sb.append(",");
+        }
+        sb.append("]");
+        String response = sb.toString();
+        exchange.sendResponseHeaders(200, response.length());
+        try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
     }
 
     private String extractJsonValue(String json, String key) {

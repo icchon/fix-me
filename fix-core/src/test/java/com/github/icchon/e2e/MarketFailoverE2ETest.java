@@ -80,8 +80,32 @@ public class MarketFailoverE2ETest {
             try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
         });
         mockIdIssuer.createContext("/routing/", exchange -> {
-            exchange.sendResponseHeaders(200, 0);
-            exchange.close();
+            String path = exchange.getRequestURI().getPath();
+            if (path.endsWith("/endpoints")) {
+                String alias = path.substring(9, path.length() - 10);
+                Set<String> eps = marketEndpoints.getOrDefault(alias, Set.of());
+                
+                // Broker の解決（簡易的にIDが alias と同じとする）
+                if (eps.isEmpty()) {
+                    if ("TEST-BROKER".equals(alias)) {
+                        eps = Set.of("router-a:TEST-BROKER"); // Brokerはrouter-aに繋いでいる
+                    }
+                }
+
+                StringBuilder sb = new StringBuilder("[");
+                Iterator<String> it = eps.iterator();
+                while (it.hasNext()) {
+                    sb.append("\"").append(it.next()).append("\"");
+                    if (it.hasNext()) sb.append(",");
+                }
+                sb.append("]");
+                String response = sb.toString();
+                exchange.sendResponseHeaders(200, response.length());
+                try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
+            } else {
+                exchange.sendResponseHeaders(200, 0);
+                exchange.close();
+            }
         });
 
         mockIdIssuer.start();

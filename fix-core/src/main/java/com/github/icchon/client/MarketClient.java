@@ -68,6 +68,11 @@ public class MarketClient extends Client {
             System.out.println("[MARKET] Identified by Router as " + myRouterSessionId + ". Sending HELLO...");
             // ID|HELLO:marketName| 形式で送信
             send(myRouterSessionId + "|HELLO:" + _marketName + "|");
+            
+            // RouterからのFIX応答を待たずに準備完了とする
+            if (!isLoggedOn()) {
+                setLoggedOn(true);
+            }
         }
     }
 
@@ -77,9 +82,11 @@ public class MarketClient extends Client {
         String senderId = message.body().get(49);
 
         if ("A".equals(msgType)) {
-            System.out.println("[LOGON] Logon response received from " + senderId);
-            // Market <=> Broker ハンドシェイク
-            sendLogon(senderId);
+            // ROUTER 以外の、実際の Broker からの Logon のみ応答する
+            if (!"ROUTER".equals(senderId) && !_marketName.equals(senderId)) {
+                System.out.println("[LOGON] Logon received from Broker: " + senderId + ". Acknowledging...");
+                sendLogon(senderId);
+            }
         } else if ("D".equals(msgType)) {
             processOrder(message, senderId);
         } else if ("5".equals(msgType)) {

@@ -52,26 +52,32 @@ public class MarketController {
             });
         });
 
+        _marketClient.setOnLogonStatusChanged(() -> {
+            Platform.runLater(this::updateStatusUI);
+        });
+
         // UIステータス監視スレッド
         new Thread(() -> {
             while (true) {
                 try {
-                    Thread.sleep(1000);
-                    Platform.runLater(() -> {
-                        if (_marketClient.isConnected()) {
-                            statusLabel.setText("Status: Market Open (ID: " + _marketClient.getId() + ")");
-                            statusLabel.setStyle("-fx-text-fill: green;");
-                        } else if (_marketClient.isWaitingToReconnect()) {
-                            statusLabel.setText("Status: Connection Lost (Retrying...)");
-                            statusLabel.setStyle("-fx-text-fill: red;");
-                        } else {
-                            statusLabel.setText("Status: Market Closed");
-                            statusLabel.setStyle("-fx-text-fill: gray;");
-                        }
-                    });
+                    Thread.sleep(2000);
+                    Platform.runLater(this::updateStatusUI);
                 } catch (InterruptedException e) { break; }
             }
         }, "Market-Status-Thread").start();
+    }
+
+    private void updateStatusUI() {
+        if (_marketClient.isLoggedOn()) {
+            statusLabel.setText("Status: Logged On (ID: " + _marketClient.getId() + ")");
+            statusLabel.setStyle("-fx-text-fill: green;");
+        } else if (_marketClient.isRunning()) {
+            statusLabel.setText("Status: Opening...");
+            statusLabel.setStyle("-fx-text-fill: orange;");
+        } else {
+            statusLabel.setText("Status: Disconnected");
+            statusLabel.setStyle("-fx-text-fill: gray;");
+        }
     }
 
     @FXML
@@ -102,14 +108,6 @@ public class MarketController {
     @FXML
     private void handleClearLog() {
         logArea.clear();
-    }
-
-    @FXML
-    private void handleKillConnection() {
-        if (_marketClient != null) {
-            _marketClient.forceDisconnect();
-            logArea.appendText("[FATAL] Forcing abrupt connection kill...\n");
-        }
     }
 
     public void shutdown() {

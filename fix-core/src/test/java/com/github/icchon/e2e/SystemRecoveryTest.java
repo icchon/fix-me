@@ -57,9 +57,24 @@ public class SystemRecoveryTest {
                 os.write(response.getBytes());
             }
         });
-        mockIdIssuer.createContext("/routing", exchange -> {
-            exchange.sendResponseHeaders(200, 0);
-            exchange.close();
+        mockIdIssuer.createContext("/routing/", exchange -> {
+            String path = exchange.getRequestURI().getPath();
+            String response;
+            if (path.endsWith("/endpoints")) {
+                // /routing/{alias}/endpoints
+                String alias = path.substring(9, path.length() - 10);
+                if ("market-A".equals(alias)) {
+                    response = "[\"test-router:" + marketPort + "\"]";
+                } else {
+                    response = "[]";
+                }
+            } else if (path.endsWith("/validate")) {
+                response = "true";
+            } else {
+                response = "false";
+            }
+            exchange.sendResponseHeaders(200, response.length());
+            try (OutputStream os = exchange.getResponseBody()) { os.write(response.getBytes()); }
         });
         mockIdIssuer.createContext("/markets", exchange -> {
             String response = "[]";
@@ -73,7 +88,17 @@ public class SystemRecoveryTest {
                 os.write(response.getBytes());
             }
         });
+        
+        mockIdIssuer.createContext("/routers", exchange -> {
+            String response = "[{\"id\":\"test-router\",\"host\":\"localhost\",\"broker_port\":" + brokerPort + ",\"market_port\":" + marketPort + "}]";
+            exchange.sendResponseHeaders(200, response.length());
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(response.getBytes());
+            }
+        });
+        
         mockIdIssuer.start();
+
 
         startRouter();
     }
@@ -105,11 +130,12 @@ public class SystemRecoveryTest {
 
     @Test
     public void testLogonWithPreIssuedId() throws Exception {
+        String issuerUrl = "http://localhost:" + idIssuerPort;
         String preIssuedId = "654321";
         AtomicBoolean brokerConnected = new AtomicBoolean(false);
         AtomicBoolean logonReceived = new AtomicBoolean(false);
-        
-        activeBroker = new BrokerClient("localhost", brokerPort, preIssuedId) {
+
+        activeBroker = new BrokerClient("localhost", brokerPort, preIssuedId, issuerUrl) {
             @Override
             protected void onConnected() {
                 super.onConnected();
@@ -124,12 +150,10 @@ public class SystemRecoveryTest {
         };
         activeBroker.setReconnectDelayMs(100);
 
-        activeMarket = new MarketClient("localhost", marketPort) {
+        activeMarket = new MarketClient("localhost", marketPort, "market-A", issuerUrl) {
             @Override
             protected void onConnected() {
                 super.onConnected();
-                // Requirement: Use official method to ensure Tag 56 is set
-                sendLogon("ROUTER");
             }
         };
         activeMarket.setReconnectDelayMs(100);
@@ -158,8 +182,9 @@ public class SystemRecoveryTest {
 
     @Test
     public void testFullFlowAfterRouterRestart() throws Exception {
+        String issuerUrl = "http://localhost:" + idIssuerPort;
         AtomicBoolean brokerConnected = new AtomicBoolean(false);
-        activeBroker = new BrokerClient("localhost", brokerPort, "111111") {
+        activeBroker = new BrokerClient("localhost", brokerPort, "111111", issuerUrl) {
             @Override
             protected void onConnected() {
                 super.onConnected();
@@ -169,11 +194,10 @@ public class SystemRecoveryTest {
         activeBroker.setReconnectDelayMs(100);
 
         AtomicBoolean marketReceivedOrder = new AtomicBoolean(false);
-        activeMarket = new MarketClient("localhost", marketPort) {
+        activeMarket = new MarketClient("localhost", marketPort, "market-A", issuerUrl) {
             @Override
             protected void onConnected() {
                 super.onConnected();
-                sendLogon("ROUTER");
             }
             @Override
             protected void handleMessage(com.github.icchon.protocol.FixParser.ParsedData message) {
@@ -183,7 +207,6 @@ public class SystemRecoveryTest {
             }
         };
         activeMarket.setReconnectDelayMs(100);
-
         activeMarket.start();
         activeBroker.start();
 

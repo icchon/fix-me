@@ -18,7 +18,6 @@
                         <Region HBox.hgrow="ALWAYS" />
                         <Button mnemonicParsing="false" onAction="#handleLogon" text="Open Market" />
                         <Button mnemonicParsing="false" onAction="#handleDisconnect" text="Close Market" textFill="#b22222" />
-                        <Button mnemonicParsing="false" onAction="#handleKillConnection" text="Kill Conn" textFill="RED" />
                     </children>
                 </HBox>
                 <Label fx:id="statusLabel" text="Status: Disconnected" textFill="#666666" />

@@ -14,8 +14,6 @@
         <module>router</module>
         <module>broker</module>
         <module>fix-core</module>
-        <module>gui-broker</module>
-        <module>gui-market</module>
     </modules>
 
     <properties>

@@ -62,7 +62,6 @@ public class FixMessageBuilder {
         
         String fullFix = fixPart + "10=" + checksum + _delimiter;
 
-        // Requirement: All messages will start with the ID assigned by the router
-        return _idPrefix + _delimiter + fullFix;
+        return fullFix;
     }
 }
