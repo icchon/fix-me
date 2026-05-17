@@ -116,9 +116,10 @@ public class FixParser {
                     String actual = payload.substring(checksumTagPos + 3, payload.length() - 1);
 
                     if (!expected.equals(actual)) {
-                        System.err.printf("Checksum Error! Exp:%s, Act:%s\n", expected, actual);
+                        String errorMsg = "Checksum Error! Exp:" + expected + ", Act:" + actual;
                         buffer.delete(0, expectedTotalLength);
                         state = ParseState.WAITING_FOR_8;
+                        throw new FixException(errorMsg, ParseState.INVALID_CHECKSUM);
                     } else {
                         results.add(finalizeParse(payload));
                         buffer.delete(0, expectedTotalLength);
@@ -127,12 +128,21 @@ public class FixParser {
                 }
 
                 case INVALID_FORMAT, INVALID_CHECKSUM, TOO_LARGE -> {
+                    System.err.println("[PARSER ERROR] State: " + state + ", Buffer: " + buffer.toString());
                     buffer.delete(0, Math.min(buffer.length(), 2));
                     ParseState tmp = state;
                     state = ParseState.WAITING_FOR_8;
-                    throw new Exception("FIX Parsing Error: " + tmp);
+                    throw new FixException("FIX Parsing Error: " + tmp, tmp);
                 }
             }
+        }
+    }
+
+    public static class FixException extends Exception {
+        public final ParseState type;
+        public FixException(String message, ParseState type) {
+            super(message);
+            this.type = type;
         }
     }
 

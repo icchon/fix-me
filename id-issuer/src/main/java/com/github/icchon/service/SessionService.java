@@ -26,11 +26,16 @@ public class SessionService {
         this.objectMapper = objectMapper;
     }
 
-    public TradingSession createSession(String marketId) {
-        Market market = marketService.getMarketById(marketId);
-        if (market == null) return null;
+    public TradingSession createSession(String marketIdOrName) {
+        Market market = null;
+        if (marketIdOrName != null) {
+            market = marketService.getMarketByName(marketIdOrName);
+            if (market == null) {
+                market = marketService.getMarketById(marketIdOrName);
+            }
+        }
 
-        String sessionId = UUID.randomUUID().toString().substring(0, 10);
+        String sessionId = String.format("%06d", (int)(Math.random() * 900000) + 100000);
         Instant now = Instant.now();
         Instant expiresAt = now.plus(SESSION_TTL_SECONDS, ChronoUnit.SECONDS);
 
@@ -55,5 +60,11 @@ public class SessionService {
         } catch (JsonProcessingException e) {
             throw new RuntimeException("Failed to deserialize session", e);
         }
+    }
+
+    public boolean validateSession(String sessionId) {
+        TradingSession session = getSession(sessionId);
+        if (session == null) return false;
+        return session.expiresAt().isAfter(Instant.now());
     }
 }

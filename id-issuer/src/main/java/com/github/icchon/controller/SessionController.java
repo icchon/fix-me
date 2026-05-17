@@ -14,13 +14,19 @@ public class SessionController {
     }
 
     @PostMapping
-    public TradingSession create(@RequestBody SessionRequest request) {
-        return sessionService.createSession(request.market_id());
+    public String create(@RequestBody(required = false) SessionRequest request) {
+        String marketId = (request != null) ? request.market_id() : null;
+        return sessionService.createSession(marketId).brokerSessionId();
     }
 
     @GetMapping("/{sessionId}")
     public TradingSession get(@PathVariable("sessionId") String sessionId) {
         return sessionService.getSession(sessionId);
+    }
+
+    @GetMapping("/{sessionId}/validate")
+    public boolean validate(@PathVariable("sessionId") String sessionId) {
+        return sessionService.validateSession(sessionId);
     }
 
     public record SessionRequest(String market_id) {}

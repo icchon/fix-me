@@ -10,13 +10,25 @@ public class FixMessageBuilder {
 
     private static final DateTimeFormatter TIME_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HH:mm:ss");
 
+    private String _senderId;
+    private String _targetId;
+
     private FixMessageBuilder(String idPrefix, String delimiter) {
         this._idPrefix = idPrefix;
         this._delimiter = delimiter;
+        this._senderId = idPrefix; // Default to prefix if tag 49 not set
     }
 
     public static FixMessageBuilder start(String idPrefix, String delimiter) {
         return new FixMessageBuilder(idPrefix, delimiter);
+    }
+
+    public String getSenderId() {
+        return _senderId;
+    }
+
+    public String getTargetId() {
+        return _targetId;
     }
 
     public FixMessageBuilder setMsgType(String type) {
@@ -28,6 +40,8 @@ public class FixMessageBuilder {
     }
 
     public FixMessageBuilder setField(int tag, String value) {
+        if (tag == 49) _senderId = value;
+        if (tag == 56) _targetId = value;
         _body.append(tag).append("=").append(value).append(_delimiter);
         return this;
     }
@@ -45,7 +59,10 @@ public class FixMessageBuilder {
 
         String fixPart = header.toString() + _body.toString();
         String checksum = Utils.ChecksumUtils.calculate(fixPart);
+        
+        String fullFix = fixPart + "10=" + checksum + _delimiter;
 
-        return _idPrefix + _delimiter + fixPart + "10=" + checksum + _delimiter + "\n";
+        // Requirement: All messages will start with the ID assigned by the router
+        return _idPrefix + _delimiter + fullFix;
     }
 }

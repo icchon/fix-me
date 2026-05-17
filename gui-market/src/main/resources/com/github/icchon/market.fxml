@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.layout.Region?>
+
+<VBox prefHeight="600.0" prefWidth="600.0" spacing="10.0" xmlns="http://javafx.com/javafx/21" xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.github.icchon.MarketController">
+    <padding>
+        <Insets bottom="10.0" left="10.0" right="10.0" top="10.0" />
+    </padding>
+    <children>
+        <VBox spacing="5.0" style="-fx-background-color: #f4f4f4; -fx-padding: 10; -fx-border-color: #ddd;">
+            <children>
+                <HBox spacing="10.0" alignment="CENTER_LEFT">
+                    <children>
+                        <Label style="-fx-font-weight: bold; -fx-font-size: 14;" text="Market GUI Console" />
+                        <Region HBox.hgrow="ALWAYS" />
+                        <Button mnemonicParsing="false" onAction="#handleLogon" text="Open Market" />
+                        <Button mnemonicParsing="false" onAction="#handleDisconnect" text="Close Market" textFill="#b22222" />
+                        <Button mnemonicParsing="false" onAction="#handleKillConnection" text="Kill Conn" textFill="RED" />
+                    </children>
+                </HBox>
+                <Label fx:id="statusLabel" text="Status: Disconnected" textFill="#666666" />
+            </children>
+        </VBox>
+        
+        <SplitPane dividerPositions="0.6" orientation="VERTICAL" VBox.vgrow="ALWAYS">
+            <items>
+                <VBox spacing="5.0">
+                    <children>
+                        <Label style="-fx-font-weight: bold;" text="Received Orders:" />
+                        <ListView fx:id="orderList" VBox.vgrow="ALWAYS" />
+                    </children>
+                    <padding>
+                        <Insets bottom="5.0" left="5.0" right="5.0" top="5.0" />
+                    </padding>
+                </VBox>
+                <VBox spacing="5.0">
+                    <children>
+                        <HBox alignment="CENTER_LEFT" spacing="10.0">
+                            <children>
+                                <Label style="-fx-font-weight: bold;" text="Raw FIX Messages (Logs):" />
+                                <Button mnemonicParsing="false" onAction="#handleClearLog" text="Clear Log" />
+                            </children>
+                        </HBox>
+                        <TextArea fx:id="logArea" editable="false" style="-fx-font-family: 'Monospaced';" VBox.vgrow="ALWAYS" />
+                    </children>
+                    <padding>
+                        <Insets bottom="5.0" left="5.0" right="5.0" top="5.0" />
+                    </padding>
+                </VBox>
+            </items>
+        </SplitPane>
+    </children>
+</VBox>

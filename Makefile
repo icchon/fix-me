@@ -1,29 +1,42 @@
-CP_CORE := fix-core/target/fix-core-1.0-SNAPSHOT.jar
-CP_ROUTER := router/target/router-1.0-SNAPSHOT.jar:$(CP_CORE)
-CP_MARKET := market/target/market-1.0-SNAPSHOT.jar:$(CP_CORE)
-CP_BROKER := broker/target/broker-1.0-SNAPSHOT.jar:$(CP_CORE)
-
-all: build up-redis run-id-issuer run-router run-market run-broker
+all: build up-deps run-id-issuer run-router run-market run-broker run-gui-market run-gui-broker
 
 build:
-	mvn clean install
+	mvn clean install -DskipTests
+
+test:
+	mvn test
 
 run-id-issuer:
 	mvn spring-boot:run -pl id-issuer
 
+# ポート 0 を指定すると空きポートを自動で使用し、id-issuer に登録される
 run-router:
-	java -cp $(CP_ROUTER) com.github.icchon.Main
+	MAVEN_OPTS="-DBROKER_PORT=$(or $(BROKER_PORT),0) -DMARKET_PORTS=$(or $(MARKET_PORTS),0)" \
+	mvn exec:java -pl router -Dexec.mainClass="com.github.icchon.Main"
+
+# 2つ目のルーターも全く同じコマンドで（空きポートを使って）起動できる
+run-router-2:
+	$(MAKE) run-router
 
 run-market:
-	java -cp $(CP_MARKET) com.github.icchon.Main
+	mvn exec:java -pl market -Dexec.mainClass="com.github.icchon.Main"
 
 run-broker:
-	java -cp $(CP_BROKER) com.github.icchon.Main
+	mvn exec:java -pl broker -Dexec.mainClass="com.github.icchon.Main"
 
-up-redis:
-	docker-compose up -d redis
+# クライアント側も ROUTER_PORT=0 をデフォルトにし、自動発見させる
+run-gui-market:
+	export ROUTER_PORT=0; export MARKET_NAME=market-A; \
+	MAVEN_OPTS="-DROUTER_PORT=0 -DMARKET_NAME=market-A" mvn javafx:run -pl gui-market
 
-down-redis:
+run-gui-broker:
+	export ROUTER_PORT=0; \
+	MAVEN_OPTS="-DROUTER_PORT=0" mvn javafx:run -pl gui-broker
+
+up-deps:
+	docker-compose up -d
+
+down-deps:
 	docker-compose down
 
-.PHONY: build run-id-issuer run-router run-market run-broker up-redis down-redis
+.PHONY: build test run-id-issuer run-router run-market run-broker run-gui-market run-gui-broker up-deps down-deps

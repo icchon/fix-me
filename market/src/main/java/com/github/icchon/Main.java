@@ -1,29 +1,36 @@
 package com.github.icchon;
 
 import com.github.icchon.client.MarketClient;
+import com.github.icchon.repository.ExecutionRepository;
 import java.io.IOException;
 
 public class Main {
     public static void main(String[] args) {
-        String host = "localhost";
-        int port = 25000;
+        String host = com.github.icchon.protocol.Config.get("ROUTER_HOST", "localhost");
+        int port = com.github.icchon.protocol.Config.getInt("ROUTER_PORT", 5001);
 
         try {
+            String idIssuerUrl = com.github.icchon.protocol.Config.get("ID_ISSUER_URL", "http://localhost:8081");
+            String marketName = com.github.icchon.protocol.Config.get("MARKET_NAME", "market-C");
+
+            ExecutionRepository repository = new ExecutionRepository();
             MarketClient market = new MarketClient(host, port);
+            
+            market.setRawMessageListener(msg -> System.out.println("[RAW] " + msg));
+
+            market.setOnExecution((message, execId) -> {
+                String clOrdId = message.body().get(11);
+                String symbol = message.body().get(55);
+                int qty = Integer.parseInt(message.body().get(38));
+                double price = Double.parseDouble(message.body().get(44));
+                String side = "1"; // Assume Buy for now, or get from Tag 54 if present
+                String status = "2"; // Filled
+
+                repository.saveExecution(execId, clOrdId, symbol, side, qty, price, status);
+            });
+
             market.start();
             System.out.println("Market is running. Press Ctrl+C to stop.");
-            
-            // Wait a bit for ID assignment and then send logon
-            Thread.sleep(2000);
-            String myId = market.getId();
-            if (myId != null) {
-                com.github.icchon.protocol.FixMessageBuilder logon = com.github.icchon.protocol.FixMessageBuilder.start(myId, "|")
-                        .setMsgType("A")
-                        .setField(98, "0")
-                        .setField(108, "30")
-                        .setField(49, "market-C"); // Identity as market-C
-                market.sendFix(logon);
-            }
             
             while (true) {
                 Thread.sleep(1000);

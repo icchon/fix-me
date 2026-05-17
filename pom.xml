@@ -14,12 +14,15 @@
         <module>router</module>
         <module>broker</module>
         <module>fix-core</module>
+        <module>gui-broker</module>
+        <module>gui-market</module>
     </modules>
 
     <properties>
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <jedis.version>5.1.2</jedis.version>
     </properties>
 
 </project>
