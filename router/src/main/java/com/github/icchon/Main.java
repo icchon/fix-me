@@ -8,8 +8,8 @@ import java.util.stream.Collectors;
 
 public class Main {
     public static void main(String[] args) {
-        int brokerPort = Config.getInt("BROKER_PORT", 0);
-        String marketPortsStr = Config.get("MARKET_PORTS", "0");
+        int brokerPort = Config.getInt("BROKER_PORT", 5000);
+        String marketPortsStr = Config.get("MARKET_PORTS", "5001");
         Set<Integer> marketPorts = Arrays.stream(marketPortsStr.split(","))
                 .map(String::trim)
                 .map(Integer::parseInt)

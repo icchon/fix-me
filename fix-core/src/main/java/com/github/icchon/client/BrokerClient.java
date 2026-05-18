@@ -35,14 +35,6 @@ public class BrokerClient extends Client {
     }
 
     @Override
-    protected void onRouterIdUpdated() {
-        if (_wasLoggedOn) {
-            System.out.println("[BROKER] Router reconnected. Auto-logon initiated...");
-            sendLogon(_lastTargetMarket != null ? _lastTargetMarket : "ROUTER");
-        }
-    }
-
-    @Override
     protected void onConnected() {
         System.out.println("Broker Session Established. Waiting for Router ID...");
     }
@@ -94,24 +86,43 @@ public class BrokerClient extends Client {
         return null;
     }
 
+    @Override
+    protected void onRouterIdUpdated() {
+        System.out.println("[BROKER] Connected to Router. Local ID: " + getRouterInternalId());
+        
+        // 1. 初回のみ、割り当てられた ID を永続的な ID として保存 (もし未設定なら)
+        if (getId() == null) {
+            setId(getRouterInternalId());
+        }
+        
+        // 2. 自動ログオンを試行 (自身の永続 ID を使用)
+        sendLogon(_lastTargetMarket != null ? _lastTargetMarket : "BROADCAST");
+        
+        // 3. ログイン状態を確定させて UI に反映
+        setLoggedOn(true);
+        
+        // 4. 親クラスのキュー処理を呼び出す
+        super.onRouterIdUpdated();
+    }
+
     /**
      * 指定したターゲットに対してLogonメッセージを送信する。
      */
     public void sendLogon(String targetId) {
-        this._lastTargetMarket = (targetId == null || targetId.isEmpty()) ? "ROUTER" : targetId;
+        this._lastTargetMarket = (targetId == null || targetId.isEmpty()) ? "BROADCAST" : targetId;
         this._wasLoggedOn = true;
         
         String myId = getId();
-        String myName = (myId != null) ? myId : com.github.icchon.protocol.Config.get("BROKER_NAME", "broker-1");
+        if (myId == null) myId = com.github.icchon.protocol.Config.get("BROKER_NAME", "broker-1");
         
-        String actualTarget = (targetId == null || targetId.isEmpty()) ? "ROUTER" : targetId;
+        String actualTarget = (targetId == null || targetId.isEmpty()) ? "BROADCAST" : targetId;
         
-        FixMessageBuilder logon = FixMessageBuilder.start(myName, "|")
+        FixMessageBuilder logon = FixMessageBuilder.start(myId, "|")
                 .setMsgType("A") // Logon
                 .setField(98, "0") // EncryptMethod: None
                 .setField(108, "30") // HeartBtInt: 30s
                 .setField(56, actualTarget) // TargetCompID
-                .setField(49, myName);
+                .setField(49, myId);
         sendFix(logon);
     }
 

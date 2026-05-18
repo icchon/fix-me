@@ -65,14 +65,18 @@ public class MarketClient extends Client {
     protected void onRouterIdUpdated() {
         if (_marketName != null) {
             String myRouterSessionId = getRouterInternalId();
-            System.out.println("[MARKET] Identified by Router as " + myRouterSessionId + ". Sending HELLO...");
-            // ID|HELLO:marketName| 形式で送信
-            send(myRouterSessionId + "|HELLO:" + _marketName + "|");
+            System.out.println("[MARKET] Identified by Router as " + myRouterSessionId + ". Announcing identity to network...");
             
-            // RouterからのFIX応答を待たずに準備完了とする
+            // Router への HELLO を廃止し、ネットワーク全体への Logon ('A') メッセージを送信
+            // Router はこのメッセージの Tag 49 (SenderCompID) を見て、このセッションが 'market-A' であることを学習する
+            sendLogon("BROADCAST"); // 最初は特定の相手ではなくネットワーク全体へ
+            
             if (!isLoggedOn()) {
                 setLoggedOn(true);
             }
+
+            // 親クラスのキュー処理を呼び出す
+            super.onRouterIdUpdated();
         }
     }
 

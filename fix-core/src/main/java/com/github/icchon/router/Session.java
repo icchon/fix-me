@@ -98,7 +98,15 @@ public abstract class Session {
             String[] messages = raw.split("(?<=\\|10=\\d{3}\\|)");
             for (String msg : messages) {
                 if (msg.trim().isEmpty()) continue;
-                processSingleMessage(msg);
+                final String finalMsg = msg;
+                _router.execute(() -> {
+                    try {
+                        processSingleMessage(finalMsg);
+                    } catch (Exception e) {
+                        System.err.println("[SESSION ASYNC ERROR] ID: " + ID + " -> " + e.getMessage());
+                        close();
+                    }
+                });
             }
             
         } catch (Exception e) {
@@ -109,35 +117,55 @@ public abstract class Session {
     }
 
     private void processSingleMessage(String raw) throws Exception {
-        if (raw.contains("HELLO:")) {
-            int firstPipe = raw.indexOf("|");
-            String payload = raw.substring(firstPipe + 1);
-            int nextPipe = payload.indexOf('|');
-            String helloMsg = (nextPipe != -1) ? payload.substring(0, nextPipe) : payload;
-            String marketName = helloMsg.substring(6);
-            System.out.println("[HANDSHAKE] Received HELLO from Market: " + marketName);
-            _router.registerAlias(marketName, this);
-            _router.registerMarketWithIssuer(marketName, ID);
-            return;
-        }
-
-        // Expected format: AssignedID|TargetID|SenderID|8=FIX...
-        String[] parts = raw.split("\\|", 4);
-        if (parts.length < 4) {
-            System.err.println("[ROUTING ERROR] Malformed message wrapper: " + raw);
-            return;
-        }
-
-        String targetId = parts[1];
-        String senderId = parts[2];
-        String fixPayload = parts[3];
-
+        // [SenderID_AssignedByRouter]|[8=FIX...]
+        int pipeIdx = raw.indexOf('|');
+        if (pipeIdx == -1) return;
+        
+        String assignedSenderId = raw.substring(0, pipeIdx);
+        String fixPayload = raw.substring(pipeIdx + 1);
+        
+        // 1. チェックサム検証 (要件: Validate the message based on the checksum)
         if (!validateChecksum(fixPayload)) {
-            System.err.println("[FIX ERROR] Invalid checksum for message from " + senderId);
+            System.err.println("[FIX ERROR] Invalid checksum in message from " + assignedSenderId);
             return;
         }
 
-        handleMsg(targetId, senderId, fixPayload);
+        // 2. 宛先(56)と送信元(49)の抽出
+        String targetID = extractTag(fixPayload, 56);
+        String senderID = extractTag(fixPayload, 49);
+
+        if (targetID == null || senderID == null) {
+            System.err.println("[ROUTING ERROR] Missing Target(56) or Sender(49) tags");
+            return;
+        }
+
+        // 3. ルーティングテーブルの学習
+        // 送信元ID(49)がこのセッションであることをRouterに学習させる
+        _router.registerAlias(senderID, this);
+
+        // 4. 転送処理
+        if ("ROUTER".equals(targetID) || "BROADCAST".equals(targetID)) {
+            // これらは学習用の宛先なので、転送せずに受理する
+            return;
+        }
+        
+        handleMsg(targetID, senderID, fixPayload);
+    }
+
+    private String extractTag(String payload, int tag) {
+        String search = "|" + tag + "=";
+        if (payload.startsWith(tag + "=")) {
+            search = tag + "=";
+        }
+        
+        int start = payload.indexOf(search);
+        if (start == -1) return null;
+        
+        start += search.length();
+        int end = payload.indexOf('|', start);
+        if (end == -1) return null;
+        
+        return payload.substring(start, end);
     }
 
     private boolean validateChecksum(String payload) {

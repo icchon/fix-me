@@ -120,18 +120,7 @@ public class BrokerController {
         new Thread(() -> {
             String targetMarket = marketIdField.getText();
             
-            // 1. もし ID がまだなければ、id-issuer に取りに行く (Task 1: Broker presents ID)
-            if (_brokerClient.getId() == null) {
-                Platform.runLater(() -> logArea.appendText("Requesting session ID from id-issuer...\n"));
-                String sessionId = _brokerClient.requestSessionId(_idIssuerUrl, targetMarket);
-                if (sessionId != null) {
-                    _brokerClient.setId(sessionId);
-                    Platform.runLater(() -> logArea.appendText("Obtained Session ID: " + sessionId + "\n"));
-                } else {
-                    Platform.runLater(() -> logArea.appendText("Failed to obtain session ID. Falling back to auto-generation.\n"));
-                }
-            }
-
+            // RouterからのID割り当てを待って接続を開始する
             ensureConnected();
             Platform.runLater(() -> _brokerClient.sendLogon(targetMarket));
         }).start();

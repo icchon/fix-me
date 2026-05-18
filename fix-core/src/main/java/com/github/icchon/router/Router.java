@@ -71,6 +71,10 @@ public class Router {
         this._redisChannel = "router:" + _routerId;
     }
 
+    public void execute(Runnable task) {
+        _executor.execute(task);
+    }
+
     public void submitTask(Runnable task) {
         _pendingTasks.add(task);
         if (_selector != null) {
@@ -84,16 +88,22 @@ public class Router {
 
     public void registerAlias(String alias, Session session) {
         if (alias == null || alias.isEmpty() || session == null || session.ID == null) return;
-        if (alias.equals(session.ID) || "ROUTER".equals(alias)) return;
+        if ("ROUTER".equals(alias) || "BROADCAST".equals(alias)) return;
 
-        System.out.println("[ROUTING] Registering alias '" + alias + "' for session " + session.ID);
-        _sessionToAliases.computeIfAbsent(session.ID, k -> ConcurrentHashMap.newKeySet()).add(alias);
-        _localSessions.put(alias, session);
-        registerRoutingWithIssuer(alias);
+        if (!_sessionToAliases.computeIfAbsent(session.ID, k -> ConcurrentHashMap.newKeySet()).contains(alias)) {
+            System.out.println("[ROUTING] Learning path: " + alias + " -> Session " + session.ID);
+            _sessionToAliases.get(session.ID).add(alias);
+            _localSessions.put(alias, session);
+            registerRoutingWithIssuer(alias);
+            
+            // MarketSession の場合は、マーケット一覧にも登録する
+            if (session instanceof MarketSession) {
+                registerMarketWithIssuer(alias, session.ID);
+            }
 
-        // フェイルオーバー対策: このエイリアスが関与する古いスティッキーパスをクリアする
-        // (自分が新しく現れたので、他人から自分への古い道筋は無効)
-        _stickyRouting.entrySet().removeIf(entry -> entry.getKey().endsWith("->" + alias));
+            // フェイルオーバー対策
+            _stickyRouting.entrySet().removeIf(entry -> entry.getKey().endsWith("->" + alias));
+        }
     }
 
     private void registerRoutingWithIssuer(String alias) {
@@ -381,13 +391,13 @@ public class Router {
 
             // id-issuerに自身を登録
             registerRouterWithIssuer(_brokerPort, _marketPorts.isEmpty() ? 0 : _marketPorts.iterator().next());
-            // 定期的なハートビート
+            // 定期的なハートビート (10秒毎に短縮)
             _discoveryTimer.scheduleAtFixedRate(new java.util.TimerTask() {
                 @Override
                 public void run() {
                     registerRouterWithIssuer(_brokerPort, _marketPorts.isEmpty() ? 0 : _marketPorts.iterator().next());
                 }
-            }, 30000, 30000);
+            }, 10000, 10000);
 
             while (_running && !Thread.currentThread().isInterrupted()) {
                 Runnable task;
@@ -476,6 +486,12 @@ public class Router {
         if (_jedisPool != null) _jedisPool.close();
     }
 
+    private String generateUniqueSessionId() {
+        // id-issuer の SessionService と同様にランダムな6桁を生成
+        // 厳密には重複チェックが必要だが、確率的に低いため一旦これで進める
+        return String.format("%06d", (int)(Math.random() * 900000) + 100000);
+    }
+
     private void handleAccept(SelectionKey key, Selector selector) {
         try {
             ServerSocketChannel serverChannel = (ServerSocketChannel) key.channel();
@@ -483,7 +499,7 @@ public class Router {
             if (clientChannel == null) return;
             
             clientChannel.configureBlocking(false);
-            String sessionId = String.format("%06d", _idGenerator.incrementAndGet());
+            String sessionId = generateUniqueSessionId();
             int listenPort = ((InetSocketAddress) serverChannel.getLocalAddress()).getPort();
             
             Session session;
@@ -497,6 +513,10 @@ public class Router {
             session.setKey(clientKey);
             session.setOnClose(() -> removeSession(sessionId));
             _localSessions.put(sessionId, session);
+            
+            // 割り当てたID自体をエイリアスとして登録し、他ルーターからも発見可能にする
+            // (registerAlias 内で id-issuer への登録も行われる)
+            registerAlias(sessionId, session);
             
             System.out.println("Accepted Internal ID: " + sessionId + " on port " + listenPort);
             session.prepareWrite("ID:" + sessionId + ":" + _routerId + "|");

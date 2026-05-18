@@ -26,8 +26,8 @@ public class RouterDiscoveryService {
         try {
             String json = objectMapper.writeValueAsString(router);
             String key = ROUTER_KEY_PREFIX + router.id();
-            // 60秒で期限切れ（ハートビート前提）
-            redisTemplate.opsForValue().set(key, json, 60, TimeUnit.SECONDS);
+            // 20秒で期限切れ（ハートビート10秒前提で余裕を持たせる）
+            redisTemplate.opsForValue().set(key, json, 20, TimeUnit.SECONDS);
             System.out.println("[DISCOVERY] Registered router: " + router.id() + " at " + router.host() + ":" + router.brokerPort());
         } catch (JsonProcessingException e) {
             e.printStackTrace();
